@@ -1,9 +1,27 @@
-# ms-alertas-notificaciones
+# MS Alertas y Notificaciones
 
-Microservicio de alertas de stock y notificaciones de Servillantas RV. Usa Spring Boot 4.1, PostgreSQL, Config Server y Eureka.
+Gestiona alertas operativas de stock bajo y las notificaciones dirigidas a usuarios.
 
-- Puerto por defecto: `8087`
-- Health: `/actuator/health`
-- API: `/api/v1/alertas` y `/api/v1/notificaciones`
+## Responsabilidades
 
-Requiere `SPRING_DATASOURCE_URL`, `DB_USER` y `DB_PASSWORD`. Config Server se localiza mediante `CONFIG_SERVER_URL`.
+- Propietario de `alertas` y `notificaciones`.
+- Mantiene una alerta activa por producto y permite resolverla.
+- Evita notificar dos veces al mismo usuario por una alerta.
+- Valida referencias de producto y usuario contra el modelo consolidado.
+- Impide que un usuario lea notificaciones pertenecientes a otro.
+
+## API
+
+- `POST/GET /api/v1/alertas`.
+- `PATCH /api/v1/alertas/{id}/resolver`.
+- `POST /api/v1/alertas/{id}/notificaciones`.
+- `GET /api/v1/notificaciones` y `PATCH /api/v1/notificaciones/{id}/leer`.
+
+## Configuración y ejecución
+
+Se registra como `ms-alertas-notificaciones`, puerto `8087`, y obtiene `ms-alertas-notificaciones.yml` desde Config Server. Requiere PostgreSQL y Eureka.
+
+```bash
+./mvnw test
+./mvnw spring-boot:run
+```

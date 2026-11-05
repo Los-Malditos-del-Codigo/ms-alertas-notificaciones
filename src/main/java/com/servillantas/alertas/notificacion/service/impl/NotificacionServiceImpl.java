@@ -6,18 +6,25 @@ import com.servillantas.alertas.notificacion.repository.NotificacionRepository;
 import com.servillantas.alertas.notificacion.service.NotificacionService;
 import java.time.OffsetDateTime;
 import java.util.UUID;
+import java.util.Set;
 import org.springframework.data.domain.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 @Service public class NotificacionServiceImpl implements NotificacionService {
+    private static final Set<String> SORT_FIELDS = Set.of("createdAt", "readAt", "leida");
     private final NotificacionRepository repository; private final NotificacionMapper mapper;
     public NotificacionServiceImpl(NotificacionRepository repository, NotificacionMapper mapper) {
         this.repository = repository; this.mapper = mapper;
     }
     @Override @Transactional(readOnly = true)
     public Page<NotificacionResponse> listar(UUID usuarioId, Boolean leida, Pageable pageable) {
+        pageable.getSort().forEach(order -> {
+            if (!SORT_FIELDS.contains(order.getProperty()))
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Campo de ordenamiento inválido: " + order.getProperty());
+        });
         Pageable segura = PageRequest.of(Math.max(pageable.getPageNumber(), 0),
                 Math.min(Math.max(pageable.getPageSize(), 1), 100), pageable.getSort());
         Page<Notificacion> values = leida == null ? repository.findByUsuarioId(usuarioId, segura)
@@ -30,6 +37,7 @@ import org.springframework.web.server.ResponseStatusException;
                 new ResponseStatusException(HttpStatus.NOT_FOUND, "Notificación no encontrada"));
         if (!value.usuarioId.equals(usuarioId))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "La notificación pertenece a otro usuario");
+        if (value.leida) return mapper.toResponse(value);
         value.leida = true; value.readAt = OffsetDateTime.now();
         return mapper.toResponse(repository.save(value));
     }
