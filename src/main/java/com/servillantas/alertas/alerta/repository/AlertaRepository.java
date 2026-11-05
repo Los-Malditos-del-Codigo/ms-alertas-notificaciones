@@ -1,5 +1,5 @@
-package com.servillantas.alertas.repository;
-import com.servillantas.alertas.domain.Alerta;
+package com.servillantas.alertas.alerta.repository;
+import com.servillantas.alertas.alerta.entity.Alerta;
 import org.springframework.data.domain.*;
 import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.*;

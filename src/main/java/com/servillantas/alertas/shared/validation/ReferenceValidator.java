@@ -1,4 +1,4 @@
-package com.servillantas.alertas.service;
+package com.servillantas.alertas.shared.validation;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;

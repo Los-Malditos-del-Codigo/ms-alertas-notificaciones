@@ -1,4 +1,4 @@
-package com.servillantas.alertas.domain;
+package com.servillantas.alertas.notificacion.entity;
 
 import jakarta.persistence.*;
 import java.time.OffsetDateTime;
