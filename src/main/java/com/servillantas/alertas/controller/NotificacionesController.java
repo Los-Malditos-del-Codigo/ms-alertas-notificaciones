@@ -1,27 +1,69 @@
 package com.servillantas.alertas.controller;
 
-import com.servillantas.alertas.domain.Notificacion;
-import com.servillantas.alertas.repository.NotificacionRepository;
-import org.springframework.data.domain.*;
-import org.springframework.data.web.PageableDefault;
-import org.springframework.http.HttpStatus;
-import org.springframework.transaction.annotation.Transactional;
+import com.servillantas.alertas.config.UsuarioActualProvider;
+import com.servillantas.alertas.dto.NotificacionDto;
+import com.servillantas.alertas.dto.PageResponseDto;
+import com.servillantas.alertas.service.NotificacionesService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
-import java.time.OffsetDateTime;
+
 import java.util.UUID;
 
-@RestController @RequestMapping("/api/v1/notificaciones")
+@RestController
+@RequestMapping("/api/v1/notificaciones")
+@Tag(name = "Notificaciones", description = "Operaciones de consulta y lectura de notificaciones de usuario")
 public class NotificacionesController {
-    private final NotificacionRepository repository;
-    public NotificacionesController(NotificacionRepository repository){this.repository=repository;}
-    @GetMapping public Page<Notificacion> listar(@RequestHeader("X-User-Id") UUID usuarioId,@RequestParam(required=false) Boolean leida,@PageableDefault(sort="createdAt",direction=Sort.Direction.DESC) Pageable p){
-        Pageable segura=PageRequest.of(Math.max(p.getPageNumber(),0),Math.min(Math.max(p.getPageSize(),1),100),p.getSort());
-        return leida == null ? repository.findByUsuarioId(usuarioId,segura) : repository.findByUsuarioIdAndLeida(usuarioId,leida,segura);
+
+    private final NotificacionesService notificacionesService;
+    private final UsuarioActualProvider usuarioActualProvider;
+
+    public NotificacionesController(NotificacionesService notificacionesService, UsuarioActualProvider usuarioActualProvider) {
+        this.notificacionesService = notificacionesService;
+        this.usuarioActualProvider = usuarioActualProvider;
     }
-    @PatchMapping("/{id}/leer") @Transactional public Notificacion leer(@PathVariable UUID id,@RequestHeader("X-User-Id") UUID usuarioId){
-        Notificacion n=repository.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,"Notificación no encontrada"));
-        if(!n.usuarioId.equals(usuarioId))throw new ResponseStatusException(HttpStatus.FORBIDDEN,"La notificación pertenece a otro usuario");
-        n.leida=true; n.readAt=OffsetDateTime.now(); return repository.save(n);
+
+    @GetMapping
+    @Operation(summary = "Listar notificaciones del usuario", description = "Consulta notificaciones paginadas del usuario autenticado con filtro opcional por leída.")
+    public ResponseEntity<PageResponseDto<NotificacionDto>> listar(
+            @Parameter(description = "Identificador del usuario autenticado (UUID)")
+            @RequestHeader(value = "X-User-Id", required = false) String userIdHeader,
+            @RequestParam(required = false) Boolean leida,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "desc") String sortDir
+    ) {
+        UUID usuarioId = resolverUsuarioId(userIdHeader);
+        PageResponseDto<NotificacionDto> resultado = notificacionesService.listarNotificaciones(usuarioId, leida, page, size, sortBy, sortDir);
+        return ResponseEntity.ok(resultado);
+    }
+
+    @PatchMapping("/{id}/leer")
+    @Operation(summary = "Marcar notificación como leída", description = "Actualiza el estado de la notificación a leída registrando la fecha de lectura.")
+    @ApiResponse(responseCode = "200", description = "Notificación marcada como leída")
+    @ApiResponse(responseCode = "403", description = "La notificación pertenece a otro usuario")
+    @ApiResponse(responseCode = "404", description = "Notificación no encontrada")
+    public ResponseEntity<NotificacionDto> leer(
+            @PathVariable UUID id,
+            @Parameter(description = "Identificador del usuario autenticado (UUID)")
+            @RequestHeader(value = "X-User-Id", required = false) String userIdHeader
+    ) {
+        UUID usuarioId = resolverUsuarioId(userIdHeader);
+        NotificacionDto leida = notificacionesService.marcarComoLeida(id, usuarioId);
+        return ResponseEntity.ok(leida);
+    }
+
+    private UUID resolverUsuarioId(String header) {
+        if (header != null && !header.isBlank()) {
+            try {
+                return UUID.fromString(header.trim());
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+        return usuarioActualProvider.getUsuarioId();
     }
 }

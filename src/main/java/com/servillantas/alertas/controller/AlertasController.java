@@ -1,46 +1,82 @@
 package com.servillantas.alertas.controller;
 
-import com.servillantas.alertas.domain.*;
-import com.servillantas.alertas.repository.*;
-import com.servillantas.alertas.service.ReferenceValidator;
+import com.servillantas.alertas.dto.*;
+import com.servillantas.alertas.service.AlertasService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.*;
-import org.springframework.data.domain.*;
-import org.springframework.data.web.PageableDefault;
-import org.springframework.http.*;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
-import java.time.OffsetDateTime;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+
+import java.net.URI;
 import java.util.UUID;
 
-@RestController @RequestMapping("/api/v1/alertas")
+@RestController
+@RequestMapping("/api/v1/alertas")
+@Tag(name = "Alertas", description = "Operaciones de gestión y resolución de alertas del sistema")
 public class AlertasController {
-    private final AlertaRepository alertas; private final NotificacionRepository notificaciones; private final ReferenceValidator referencias;
-    public AlertasController(AlertaRepository a, NotificacionRepository n,ReferenceValidator r){alertas=a;notificaciones=n;referencias=r;}
 
-    public record CrearAlerta(@NotNull UUID productoId, @NotBlank @Size(max=500) String mensaje) {}
-    public record Notificar(@NotNull UUID usuarioId, @NotBlank @Size(max=500) String mensaje) {}
+    private final AlertasService alertasService;
 
-    @PostMapping @ResponseStatus(HttpStatus.CREATED) @Transactional
-    public Alerta crear(@Valid @RequestBody CrearAlerta r){
-        referencias.producto(r.productoId());
-        return alertas.findByProductoIdAndEstado(r.productoId(), "ACTIVA").orElseGet(() -> alertas.save(new Alerta(r.productoId(), r.mensaje())));
+    public AlertasController(AlertasService alertasService) {
+        this.alertasService = alertasService;
     }
-    @GetMapping public Page<Alerta> listar(@RequestParam(required=false) String estado, @PageableDefault(sort="createdAt", direction=Sort.Direction.DESC) Pageable p){
-        Pageable segura=PageRequest.of(Math.max(p.getPageNumber(),0),Math.min(Math.max(p.getPageSize(),1),100),p.getSort());
-        if(estado!=null&&!java.util.Set.of("ACTIVA","RESUELTA").contains(estado.toUpperCase()))throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Estado de alerta inválido");
-        return estado == null ? alertas.findAll(segura) : alertas.findByEstado(estado.toUpperCase(), segura);
+
+    @PostMapping
+    @Operation(summary = "Crear alerta", description = "Crea o recupera una alerta activa para un producto.")
+    @ApiResponse(responseCode = "201", description = "Alerta creada")
+    @ApiResponse(responseCode = "400", description = "Datos de entrada inválidos")
+    public ResponseEntity<AlertaDto> crear(@Valid @RequestBody CrearAlertaRequestDto request) {
+        AlertaDto alerta = alertasService.crearAlerta(request);
+
+        URI location = ServletUriComponentsBuilder.fromCurrentRequest()
+                .path("/{id}")
+                .buildAndExpand(alerta.id())
+                .toUri();
+
+        return ResponseEntity.created(location).body(alerta);
     }
-    @PatchMapping("/{id}/resolver") @Transactional public Alerta resolver(@PathVariable UUID id){
-        Alerta a=alertas.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,"Alerta no encontrada"));
-        a.estado="RESUELTA"; a.resueltaAt=OffsetDateTime.now(); return alertas.save(a);
+
+    @GetMapping
+    @Operation(summary = "Listar alertas", description = "Consulta alertas paginadas con filtro opcional por estado (ACTIVA, RESUELTA).")
+    public ResponseEntity<PageResponseDto<AlertaDto>> listar(
+            @RequestParam(required = false) String estado,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "desc") String sortDir
+    ) {
+        PageResponseDto<AlertaDto> resultado = alertasService.listarAlertas(estado, page, size, sortBy, sortDir);
+        return ResponseEntity.ok(resultado);
     }
-    @PostMapping("/{id}/notificaciones") @ResponseStatus(HttpStatus.CREATED) @Transactional
-    public Notificacion notificar(@PathVariable UUID id, @Valid @RequestBody Notificar r){
-        if(!alertas.existsById(id)) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Alerta no encontrada");
-        referencias.usuario(r.usuarioId());
-        if(notificaciones.existsByAlertaIdAndUsuarioId(id,r.usuarioId()))throw new ResponseStatusException(HttpStatus.CONFLICT,"El usuario ya fue notificado para esta alerta");
-        return notificaciones.save(new Notificacion(id,r.usuarioId(),r.mensaje()));
+
+    @PatchMapping("/{id}/resolver")
+    @Operation(summary = "Resolver alerta", description = "Marca una alerta activa como RESUELTA.")
+    @ApiResponse(responseCode = "200", description = "Alerta resuelta con éxito")
+    @ApiResponse(responseCode = "404", description = "Alerta no encontrada")
+    public ResponseEntity<AlertaDto> resolver(@PathVariable UUID id) {
+        AlertaDto resuelta = alertasService.resolverAlerta(id);
+        return ResponseEntity.ok(resuelta);
+    }
+
+    @PostMapping("/{id}/notificaciones")
+    @Operation(summary = "Notificar usuario para una alerta", description = "Crea una notificación vinculada a la alerta para un usuario específico.")
+    @ApiResponse(responseCode = "201", description = "Notificación generada")
+    @ApiResponse(responseCode = "404", description = "Alerta o usuario no encontrados")
+    @ApiResponse(responseCode = "409", description = "El usuario ya fue notificado previamente")
+    public ResponseEntity<NotificacionDto> notificar(
+            @PathVariable UUID id,
+            @Valid @RequestBody NotificarAlertaRequestDto request
+    ) {
+        NotificacionDto notificacion = alertasService.notificar(id, request);
+
+        URI location = ServletUriComponentsBuilder.fromCurrentRequest()
+                .path("/{notificacionId}")
+                .buildAndExpand(notificacion.id())
+                .toUri();
+
+        return ResponseEntity.created(location).body(notificacion);
     }
 }
